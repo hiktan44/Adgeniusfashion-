@@ -38,6 +38,7 @@ export type AdStyle =
 export type ImageModel = 'gemini-3-pro-image-preview' | 'gemini-2.5-flash-image';
 export type VideoModel = 'veo-3.1-fast-generate-preview' | 'veo-3.1-generate-preview';
 export type GenerationMode = 'campaign' | 'ecommerce';
+export type AspectRatio = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
 
 export interface FormData {
   productImage: File | null;
@@ -50,6 +51,14 @@ export interface FormData {
   videoModel: VideoModel;
   mode: GenerationMode;
   includeVideo: boolean;
+  aspectRatio: AspectRatio; // New field for aspect ratio
+  // New configuration fields
+  campaignStyleCount: number;
+  ecommercePhotoCount: number;
+  ecommerceColorVariations: string;
+  ecommercePatternImage: File | null; // New field for pattern upload
+  renderTextOnImage: boolean; // Renamed from renderBrandOnImage
+  imageOverlayText: string; // New field for custom text
 }
 
 export interface AdPrompt {
@@ -66,6 +75,7 @@ export interface GenerationResult {
   videoUrl?: string;
   status: 'pending' | 'generating_image' | 'generating_video' | 'completed' | 'failed';
   error?: string;
+  progress?: number; // Added progress field (0-100)
 }
 
 export type AppStep = 'upload' | 'analyzing' | 'generating' | 'results';

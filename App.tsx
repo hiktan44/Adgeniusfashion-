@@ -10,7 +10,7 @@ const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>('upload');
   const [formData, setFormData] = useState<FormData>({
     productImage: null,
-    optionalImage: null, // Initialize
+    optionalImage: null, 
     productName: '',
     brand: '',
     customPrompt: '', 
@@ -18,7 +18,14 @@ const App: React.FC = () => {
     imageModel: 'gemini-3-pro-image-preview',
     videoModel: 'veo-3.1-fast-generate-preview',
     mode: 'campaign',
-    includeVideo: true 
+    includeVideo: false, 
+    aspectRatio: '1:1', // Default to Square
+    campaignStyleCount: 4,
+    ecommercePhotoCount: 8, // Increased default to 8 to include Artistic & Lifestyle poses
+    ecommerceColorVariations: '',
+    ecommercePatternImage: null,
+    renderTextOnImage: false,
+    imageOverlayText: ''
   });
   const [analysis, setAnalysis] = useState<ProductAnalysis | null>(null);
   const [results, setResults] = useState<GenerationResult[]>([]);
@@ -46,6 +53,12 @@ const App: React.FC = () => {
         optionalImageB64 = await fileToGoogleGenAIBase64(formData.optionalImage);
       }
 
+      // Convert pattern image if exists
+      let patternImageB64: string | null = null;
+      if (formData.ecommercePatternImage) {
+        patternImageB64 = await fileToGoogleGenAIBase64(formData.ecommercePatternImage);
+      }
+
       // 1. Analyze
       const analysisResult = await analyzeProductImage(formData.productImage);
       setAnalysis(analysisResult);
@@ -58,7 +71,8 @@ const App: React.FC = () => {
         id: p.id,
         type: p.type,
         prompt: p.text,
-        status: 'pending'
+        status: 'pending',
+        progress: 0
       }));
       setResults(initialResults);
       setStep('generating');
@@ -69,17 +83,40 @@ const App: React.FC = () => {
       };
 
       const processItem = async (item: GenerationResult) => {
+        // Simulate progress for Image Generation (since API doesn't stream progress for single images)
+        const progressInterval = setInterval(() => {
+          setResults(prev => {
+            const current = prev.find(r => r.id === item.id);
+            if (!current || current.status !== 'generating_image') return prev;
+            
+            // Increment until 45% then wait for completion
+            const nextProgress = Math.min((current.progress || 0) + 2, 45);
+            return prev.map(r => r.id === item.id ? { ...r, progress: nextProgress } : r);
+          });
+        }, 500);
+
         try {
           // Determine Aspect Ratios
-          const imgAspectRatio = formData.mode === 'ecommerce' ? '1:1' : '16:9';
-          const vidAspectRatio = formData.mode === 'ecommerce' ? '9:16' : '16:9';
+          // Use user selected ratio for Images
+          const imgAspectRatio = formData.aspectRatio;
+
+          // Determine Video Ratio (Veo strictly supports 16:9 or 9:16)
+          // Map user selection to closest Veo supported format
+          let vidAspectRatio = '16:9';
+          if (imgAspectRatio === '9:16' || imgAspectRatio === '3:4' || imgAspectRatio === '1:1') {
+             // For Square, Portrait and Tall, use Portrait Video
+             vidAspectRatio = '9:16';
+          } else {
+             // For Landscape (16:9, 4:3), use Landscape Video
+             vidAspectRatio = '16:9';
+          }
 
           // A. Generate Image
-          updateResult(item.id, { status: 'generating_image' });
+          updateResult(item.id, { status: 'generating_image', progress: 5 });
           
           if (!formData.productImage) throw new Error("Ana resim eksik");
 
-          // Pass the optional image to the generator
+          // Pass the optional image and pattern image to the generator
           const base64Image = await generateAdImage(
             item.prompt, 
             originalImageB64, 
@@ -87,36 +124,65 @@ const App: React.FC = () => {
             optionalImageB64, 
             formData.optionalImage?.type || null, // Pass optional image mime type
             formData.imageModel, 
-            imgAspectRatio
+            imgAspectRatio,
+            patternImageB64,
+            formData.ecommercePatternImage?.type || null
           );
           
+          clearInterval(progressInterval);
+
           // B. Check if Video is requested
           if (formData.includeVideo) {
             updateResult(item.id, { 
               status: 'generating_video', 
-              imageUrl: base64Image 
+              imageUrl: base64Image,
+              progress: 50
             });
 
-            // Generate Video (Veo)
-            const videoUrl = await generateAdVideo(base64Image, item.type, formData.videoModel, vidAspectRatio);
-            
-            updateResult(item.id, { 
-              status: 'completed', 
-              videoUrl: videoUrl 
-            });
+            try {
+                // Generate Video (Veo)
+                const videoUrl = await generateAdVideo(
+                  base64Image, 
+                  item.type, 
+                  formData.videoModel, 
+                  vidAspectRatio,
+                  (vidProgress) => {
+                    // Update progress during polling (50% -> 99%)
+                    updateResult(item.id, { progress: vidProgress });
+                  }
+                );
+                
+                updateResult(item.id, { 
+                  status: 'completed', 
+                  videoUrl: videoUrl,
+                  progress: 100
+                });
+            } catch (videoError: any) {
+                console.warn(`Video generation failed for item ${item.id}, preserving image. Error:`, videoError);
+                // Mark as completed but attach error message to show partial success
+                updateResult(item.id, { 
+                  status: 'completed', 
+                  imageUrl: base64Image,
+                  error: videoError.message,
+                  progress: 100
+                });
+            }
           } else {
             // Image Only Mode
             updateResult(item.id, { 
               status: 'completed', 
-              imageUrl: base64Image 
+              imageUrl: base64Image,
+              progress: 100
             });
           }
 
         } catch (err: any) {
+          clearInterval(progressInterval);
           console.error(`Error processing item ${item.id}`, err);
           updateResult(item.id, { 
             status: 'failed', 
-            error: err.message || "Bilinmeyen bir hata oluştu." 
+            error: err.message || "Bilinmeyen bir hata oluştu.",
+            progress: 0 
           });
         }
       };
@@ -192,7 +258,13 @@ const App: React.FC = () => {
                          productImage: null,
                          optionalImage: null,
                          customPrompt: '',
-                         // Keep other settings
+                         // Reset new fields as well or keep them? Keeping them is better UX usually.
+                         campaignStyleCount: 4,
+                         ecommercePhotoCount: 8,
+                         ecommerceColorVariations: '',
+                         ecommercePatternImage: null,
+                         renderTextOnImage: false,
+                         imageOverlayText: ''
                        }));
                     }}
                     className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-3 rounded-full font-medium transition-colors border border-slate-600"

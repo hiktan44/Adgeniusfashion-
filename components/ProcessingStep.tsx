@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppStep, ProductAnalysis, GenerationResult } from '../types';
-import { Loader2, BrainCircuit, Image as ImageIcon, Video, CheckCircle, Copy, Check, ShoppingBag, FileText, Tag } from 'lucide-react';
+import { Loader2, BrainCircuit, Image as ImageIcon, Video, CheckCircle, Copy, Check, ShoppingBag, FileText, Tag, Sparkles } from 'lucide-react';
 
 interface Props {
   step: AppStep;
@@ -11,6 +11,7 @@ interface Props {
 const ProcessingStep: React.FC<Props> = ({ step, analysis, results }) => {
   const [copied, setCopied] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [stageLabel, setStageLabel] = useState("");
 
   const steps = [
     { id: 'analyzing', label: 'Ürün Analizi', icon: BrainCircuit },
@@ -23,42 +24,60 @@ const ProcessingStep: React.FC<Props> = ({ step, analysis, results }) => {
   // Calculate dynamic progress based on item states
   useEffect(() => {
     let targetProgress = 0;
+    let label = "";
 
-    if (step === 'upload') targetProgress = 0;
-    else if (step === 'analyzing') targetProgress = 15;
-    else if (step === 'results') targetProgress = 100;
+    if (step === 'upload') {
+        targetProgress = 0;
+        label = "Hazır";
+    }
+    else if (step === 'analyzing') {
+        targetProgress = 15;
+        label = "Yapay zeka ürün özelliklerini analiz ediyor...";
+    }
+    else if (step === 'results') {
+        targetProgress = 100;
+        label = "Tüm işlemler başarıyla tamamlandı!";
+    }
     else if (step === 'generating') {
-      // Base progress for starting generation
-      const base = 25;
+      const base = 15;
       
       if (!results || results.length === 0) {
         targetProgress = base;
+        label = "Üretim kuyruğu hazırlanıyor...";
       } else {
-        // Calculate average progress of all items
         let totalItemProgress = 0;
-        
+        let activeVideoGen = false;
+
         results.forEach(r => {
-          if (r.status === 'completed' || r.status === 'failed') {
-            totalItemProgress += 100;
-          } else if (r.status === 'generating_video') {
-            // Image is done (approx 40% of effort), Video is generating
-            totalItemProgress += 60; 
-          } else if (r.status === 'generating_image') {
-            // Just started
-            totalItemProgress += 10;
-          } else {
-            // Pending
-            totalItemProgress += 0;
-          }
+           totalItemProgress += (r.progress || 0);
+           if (r.status === 'generating_video') activeVideoGen = true;
         });
 
         const avgProgress = totalItemProgress / results.length;
-        // Map the 0-100 item progress to the remaining 75% of the bar (25% to 100%)
-        targetProgress = base + (avgProgress * 0.75);
+        // Map the 0-100 item progress to the remaining 85% of the bar (15% to 100%)
+        targetProgress = base + (avgProgress * 0.85);
+
+        // Discrete stages based on average item progress
+        if (avgProgress < 10) {
+            label = `Sahne kurgusu ve promptlar hazırlanıyor (%${Math.round(avgProgress)})`;
+        } else if (avgProgress < 48) {
+            label = `Yüksek çözünürlüklü görseller üretiliyor (%${Math.round(avgProgress)})`;
+        } else if (avgProgress < 55) {
+            label = `Görseller işleniyor ve kalite kontrolü yapılıyor (%${Math.round(avgProgress)})`;
+        } else if (avgProgress < 90) {
+             if (activeVideoGen) {
+                 label = `Veo modeli ile video animasyonları oluşturuluyor (%${Math.round(avgProgress)})`;
+             } else {
+                 label = `Detaylar iyileştiriliyor ve netleştiriliyor (%${Math.round(avgProgress)})`;
+             }
+        } else {
+            label = `Sonuçlar derleniyor (%${Math.round(avgProgress)})`;
+        }
       }
     }
 
     setProgress(targetProgress);
+    setStageLabel(label);
   }, [step, results]);
 
   const handleCopy = () => {
@@ -110,6 +129,16 @@ ${analysis.eticaret_ozellikler.map(f => `• ${f}`).join('\n')}
           );
         })}
       </div>
+
+      {/* Stage Label Indicator */}
+      {(step === 'generating' || step === 'analyzing') && (
+        <div className="flex justify-center -mt-4 mb-8 animate-fade-in">
+           <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-slate-800/80 border border-blue-500/30 text-blue-300 text-sm font-medium shadow-lg backdrop-blur-sm">
+             <Sparkles className="w-4 h-4 animate-pulse text-blue-400" />
+             {stageLabel}
+           </div>
+        </div>
+      )}
 
       {/* Analysis Details Card */}
       {analysis && (

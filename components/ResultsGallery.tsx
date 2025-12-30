@@ -41,7 +41,7 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
       // Configuration
       const gap = 20; // Gap between images
       const padding = 40; // Outer padding
-      const headerHeight = 0; // Space for title (Removed)
+      const headerHeight = 0; 
       
       const count = completedImages.length;
       
@@ -53,14 +53,20 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
 
       const rows = Math.ceil(count / cols);
       
-      // Load first image to check dimensions
-      const firstImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+      // Helper to load image
+      const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new Image();
-        img.crossOrigin = "Anonymous";
+        // Only set crossOrigin if it's NOT a data URI (e.g. external URL)
+        if (!src.startsWith('data:')) {
+            img.crossOrigin = "Anonymous";
+        }
         img.onload = () => resolve(img);
         img.onerror = reject;
-        img.src = completedImages[0].imageUrl!;
+        img.src = src;
       });
+
+      // Load first image to check dimensions
+      const firstImg = await loadImage(completedImages[0].imageUrl!);
 
       const imgAspect = firstImg.width / firstImg.height;
       const targetImageWidth = 800;
@@ -79,20 +85,8 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, totalWidth, totalHeight);
 
-      // Load and Draw All Images
-      const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = src;
-      });
-
-      // Draw first image (already loaded)
-      // Actually we need to loop all
-      
+      // Draw All Images
       await Promise.all(completedImages.map(async (item, index) => {
-        // Reuse firstImg for the first one to avoid reload if possible, but map is cleaner
         const img = await loadImage(item.imageUrl!);
         
         const colIndex = index % cols;
@@ -108,9 +102,19 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
         ctx.shadowOffsetX = 10;
         ctx.shadowOffsetY = 10;
         
-        // Clip rounded corners
+        // Manual rounded rect path for broader browser compatibility
+        const radius = 16;
         ctx.beginPath();
-        ctx.roundRect(x, y, targetImageWidth, targetImageHeight, 16);
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + targetImageWidth - radius, y);
+        ctx.quadraticCurveTo(x + targetImageWidth, y, x + targetImageWidth, y + radius);
+        ctx.lineTo(x + targetImageWidth, y + targetImageHeight - radius);
+        ctx.quadraticCurveTo(x + targetImageWidth, y + targetImageHeight, x + targetImageWidth - radius, y + targetImageHeight);
+        ctx.lineTo(x + radius, y + targetImageHeight);
+        ctx.quadraticCurveTo(x, y + targetImageHeight, x, y + targetImageHeight - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
         ctx.clip();
         
         ctx.drawImage(img, x, y, targetImageWidth, targetImageHeight);
@@ -191,19 +195,49 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-8">
         {results.map((result) => (
-          <div key={result.id} className="bg-slate-800 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col">
+          <div key={result.id} className="bg-slate-800 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col relative">
+            
+            {/* Progress Bar Overlay (if actively generating) */}
+            {result.status !== 'completed' && result.status !== 'failed' && result.progress !== undefined && (
+              <div className="absolute top-0 left-0 right-0 z-20">
+                <div className="h-1 bg-slate-700 w-full">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-300 ease-out" 
+                    style={{ width: `${result.progress}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+
             {/* Header */}
-            <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
-              <span className="font-semibold text-blue-300">{result.type}</span>
-              <span className={`text-xs px-2 py-1 rounded-full ${
-                result.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                result.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                'bg-blue-500/20 text-blue-400 animate-pulse'
-              }`}>
-                {result.status === 'completed' ? 'Hazır' : 
-                 result.status === 'generating_image' ? 'Görsel Üretiliyor...' :
-                 result.status === 'generating_video' ? 'Video Üretiliyor...' : 'Bekliyor'}
-              </span>
+            <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center relative z-10">
+              <div className="flex flex-col">
+                <span className="font-semibold text-blue-300 text-sm">{result.type}</span>
+                {result.progress !== undefined && result.progress > 0 && result.progress < 100 && (
+                   <span className="text-[10px] text-slate-400 font-mono">
+                     {result.status === 'generating_image' ? 'Görsel' : 'Video'}: %{result.progress}
+                   </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                 {/* Partial Success Warning */}
+                 {(result.status === 'completed' && result.error) && (
+                     <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-400 px-2 py-1 rounded-full text-xs border border-yellow-500/20" title={result.error}>
+                        <AlertCircle className="w-3 h-3" />
+                        <span className="hidden sm:inline">Video Hatası</span>
+                     </div>
+                 )}
+                 <span className={`text-xs px-2 py-1 rounded-full ${
+                    result.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                    result.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                    'bg-blue-500/20 text-blue-400 animate-pulse'
+                  }`}>
+                    {result.status === 'completed' ? 'Hazır' : 
+                     result.status === 'generating_image' ? 'Görsel Üretiliyor...' :
+                     result.status === 'generating_video' ? 'Video Üretiliyor...' : 'Bekliyor'}
+                 </span>
+              </div>
             </div>
 
             {/* Content Area */}
@@ -213,7 +247,7 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
               {result.imageUrl ? (
                 <div className="flex h-full w-full">
                   {/* Image Half */}
-                  <div className={`${result.videoUrl || result.status === 'generating_video' ? 'w-1/2 border-r border-slate-700' : 'w-full'} relative h-full bg-slate-900`}>
+                  <div className={`${(result.videoUrl || result.status === 'generating_video' || result.error) ? 'w-1/2 border-r border-slate-700' : 'w-full'} relative h-full bg-slate-900`}>
                     <img 
                       src={result.imageUrl} 
                       alt="Oluşturulan Reklam" 
@@ -221,9 +255,9 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
                     />
                   </div>
 
-                  {/* Video Half - Only show if video exists or is generating */}
-                  {(result.videoUrl || result.status === 'generating_video' || result.status === 'completed') && result.status !== 'generating_image' && (
-                    <div className="w-1/2 relative flex items-center justify-center bg-slate-900 h-full">
+                  {/* Video Half - Only show if video exists or is generating or if ERROR exists but we want to show it in the video slot */}
+                  {(result.videoUrl || result.status === 'generating_video' || (result.status === 'completed' && result.error)) && result.status !== 'generating_image' && (
+                    <div className="w-1/2 relative flex items-center justify-center bg-slate-900 h-full border-l border-slate-700">
                       {result.videoUrl ? (
                         <div className="relative w-full h-full group/video">
                           <video 
@@ -236,9 +270,25 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
                           />
                         </div>
                       ) : result.status === 'generating_video' ? (
-                         <div className="text-center p-4">
-                           <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
-                           <p className="text-xs text-slate-400">Veo Video Oluşturuyor...</p>
+                         <div className="text-center p-4 w-full">
+                           <div className="relative w-12 h-12 mx-auto mb-2">
+                              <svg className="animate-spin w-full h-full text-slate-700" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-slate-400">
+                                {result.progress}%
+                              </div>
+                           </div>
+                           <p className="text-xs text-blue-400 font-medium">Veo Video Oluşturuyor...</p>
+                         </div>
+                      ) : result.error ? (
+                         <div className="text-center p-4 flex flex-col items-center">
+                            <AlertCircle className="w-8 h-8 text-yellow-500/50 mb-2" />
+                            <p className="text-xs text-yellow-500/70 text-center font-medium">Video Oluşturulamadı</p>
+                            <p className="text-[10px] text-slate-500 mt-2 max-w-[150px] leading-tight opacity-70">
+                              {result.error.length > 80 ? result.error.substring(0, 80) + '...' : result.error}
+                            </p>
                          </div>
                       ) : (
                          <div className="text-center text-slate-600">
@@ -249,7 +299,7 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
                   )}
                 </div>
               ) : (
-                // Loading State for Image
+                // Loading State for Image (Overall Item)
                 <div className="flex flex-col items-center justify-center h-full text-slate-500">
                   {result.status === 'failed' ? (
                      <>
@@ -258,22 +308,26 @@ const ResultsGallery: React.FC<Props> = ({ results }) => {
                      </>
                   ) : (
                     <>
-                      <Loader2 className="w-10 h-10 animate-spin mb-3 text-blue-500" />
-                      <p className="animate-pulse">Görsel Oluşturuluyor...</p>
+                      <div className="relative w-16 h-16 mb-3">
+                         <div className="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
+                         <div 
+                           className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"
+                         ></div>
+                         <div className="absolute inset-0 flex items-center justify-center font-bold text-slate-300">
+                           {result.progress || 0}%
+                         </div>
+                      </div>
+                      <p className="animate-pulse text-blue-400">Görsel Oluşturuluyor...</p>
                     </>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Prompt Text & Actions */}
-            <div className="p-4 bg-slate-900 border-t border-slate-700 flex flex-col gap-3 flex-grow">
-               <p className="text-xs text-slate-400 font-mono line-clamp-2 hover:line-clamp-none transition-all cursor-help" title={result.prompt}>
-                 {result.prompt}
-               </p>
-               
+            {/* Actions */}
+            <div className="p-4 bg-slate-900 border-t border-slate-700 flex flex-col gap-3 flex-grow justify-end">
                {/* Action Buttons */}
-               <div className="flex gap-2 mt-auto pt-2 border-t border-slate-800/50">
+               <div className="flex gap-2">
                   {result.imageUrl && (
                     <button 
                       onClick={() => result.imageUrl && handleDownload(result.imageUrl, `reklam-gorsel-${result.id}${getExtension(result.imageUrl)}`)}
