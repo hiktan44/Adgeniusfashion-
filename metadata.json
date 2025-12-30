@@ -1,0 +1,5 @@
+{
+  "name": "AdGenius AI",
+  "description": "Professional product advertisement generator using Gemini 3 and Veo. Transforms product photos into studio-quality images and commercials.",
+  "requestFramePermissions": []
+}
